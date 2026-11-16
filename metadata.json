@@ -1,0 +1,6 @@
+{
+  "name": "Dónde Denunciar — Paraguay",
+  "description": "Mapa interactivo y guía de recursos gratuitos de atención, asistencia legal, psicológica, albergues y comisarías ante la violencia de género en Paraguay.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
+}

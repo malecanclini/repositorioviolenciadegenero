@@ -1,0 +1,133 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@layer base {
+  :root {
+    --bg: #0f0f13;
+    --surface: #18181f;
+    --surface2: #1f1f28;
+    --border: #2a2a36;
+    --accent: #e05c7a;
+    --accent2: #f0a0b0;
+    --text: #f0eef5;
+    --text-muted: #9895a8;
+    --emergency: #ff4757;
+    --legal: #7c6af7;
+    --psicologico: #2ecc71;
+    --albergue: #f39c12;
+    --policial: #3498db;
+  }
+
+  html,
+  body {
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    overscroll-behavior-y: none;
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: 'Syne', sans-serif;
+  }
+
+  .font-mono-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Scrollbar limpio */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #2f2f3d;
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #444457;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Leaflet overrides para tema oscuro y mejor legibilidad táctil */
+.leaflet-container {
+  background: #0d0e14;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+}
+
+.leaflet-control-attribution {
+  background: rgba(15, 15, 19, 0.72) !important;
+  color: #8a8799 !important;
+  font-size: 10px !important;
+  backdrop-filter: blur(6px);
+  border-top-left-radius: 6px;
+}
+
+.leaflet-control-attribution a {
+  color: #b8b5c8 !important;
+}
+
+.leaflet-tooltip.custom-map-tooltip {
+  background: #18181f;
+  color: #f0eef5;
+  border: 1px solid #2e2e3d;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+}
+
+.leaflet-tooltip-top.custom-map-tooltip::before {
+  border-top-color: #2e2e3d;
+}
+
+/* Animación sutil para pulso de ubicación del usuario */
+@keyframes userPulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.75;
+  }
+  70% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
+.user-location-pulse {
+  animation: userPulse 2.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .user-location-pulse {
+    animation: none;
+  }
+}
+
+/* Safe area bottom padding para móviles con notch/barra de gestos */
+.pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}

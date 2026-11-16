@@ -6,6 +6,7 @@ import { Header } from './components/Header';
 import { HotlinesView } from './components/HotlinesView';
 import { MapView } from './components/MapView';
 import { MobileBottomNav } from './components/MobileBottomNav';
+import { SourcesModal } from './components/SourcesModal';
 import { useParaguayData } from './hooks/useParaguayData';
 import {
   ActiveTab,
@@ -36,6 +37,7 @@ export default function App() {
     zoom: number;
     nonce: number;
   } | null>(null);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
 
   const {
     loadingGeo,
@@ -176,6 +178,7 @@ export default function App() {
                 flyToTarget={flyToTarget}
                 loadingGeo={loadingGeo}
                 isVisible={activeTab === 'mapa'}
+                onOpenSources={() => setSourcesOpen(true)}
                 counts={counts}
               />
             </section>
@@ -190,7 +193,10 @@ export default function App() {
 
         {activeTab === 'info' && (
           <div className="h-full overflow-y-auto custom-scrollbar">
-            <GuideView onGoToMap={() => setActiveTab('mapa')} />
+            <GuideView
+              onGoToMap={() => setActiveTab('mapa')}
+              onOpenSources={() => setSourcesOpen(true)}
+            />
           </div>
         )}
 
@@ -209,6 +215,8 @@ export default function App() {
         onSelectTab={setActiveTab}
         filteredCount={counts.totalFiltered}
       />
+
+      <SourcesModal open={sourcesOpen} onClose={() => setSourcesOpen(false)} />
     </div>
   );
 }

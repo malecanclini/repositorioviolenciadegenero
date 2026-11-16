@@ -1,11 +1,12 @@
-import { PhoneCall, ShieldCheck } from 'lucide-react';
+import { Info, PhoneCall, ShieldCheck } from 'lucide-react';
 import { DENUNCIA_STEPS } from '../data/placesData';
 
 interface GuideViewProps {
   onGoToMap: () => void;
+  onOpenSources: () => void;
 }
 
-export function GuideView({ onGoToMap }: GuideViewProps) {
+export function GuideView({ onGoToMap, onOpenSources }: GuideViewProps) {
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-10 pb-28 lg:pb-12">
       <div className="mb-6 sm:mb-8">
@@ -67,6 +68,20 @@ export function GuideView({ onGoToMap }: GuideViewProps) {
             Ver mapa
           </button>
         </div>
+      </div>
+
+      <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-2 text-xs text-[#9895a8]">
+        <span>
+          Fuente principal: Visor Geoestadístico del INE - Paraguay · Noviembre 2026
+        </span>
+        <button
+          type="button"
+          onClick={onOpenSources}
+          className="inline-flex items-center gap-1.5 text-[#f0a0b0] hover:text-white font-medium self-start sm:self-auto cursor-pointer"
+        >
+          <Info className="w-3.5 h-3.5 text-[#e05c7a]" aria-hidden="true" />
+          <span>Ver detalle de fuente de datos</span>
+        </button>
       </div>
     </div>
   );

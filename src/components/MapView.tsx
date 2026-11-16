@@ -1,6 +1,7 @@
 import L from 'leaflet';
 import {
   Crosshair,
+  Info,
   Layers,
   Loader2,
   Maximize2,
@@ -57,6 +58,7 @@ interface MapViewProps {
   flyToTarget: { lat: number; lng: number; zoom: number; nonce: number } | null;
   loadingGeo: boolean;
   isVisible: boolean;
+  onOpenSources: () => void;
   counts: {
     curatedFiltered: number;
     policialTotal: number;
@@ -227,6 +229,7 @@ export function MapView({
   flyToTarget,
   loadingGeo,
   isVisible,
+  onOpenSources,
   counts,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -566,9 +569,17 @@ export function MapView({
       center: PARAGUAY_CENTER,
       zoom: PARAGUAY_DEFAULT_ZOOM,
       zoomControl: false,
+      attributionControl: false,
       minZoom: 5,
       maxZoom: 18,
     });
+
+    L.control
+      .attribution({
+        position: 'bottomleft',
+        prefix: false,
+      })
+      .addTo(map);
 
     const geoGroup = L.layerGroup().addTo(map);
     const spiderGroup = L.layerGroup().addTo(map);
@@ -628,7 +639,7 @@ export function MapView({
 
     const createOsmLayer = () =>
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors',
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
         subdomains: 'abc',
         maxZoom: 19,
       });
@@ -663,7 +674,7 @@ export function MapView({
     const darkTile = L.tileLayer(
       'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
       {
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
         subdomains: 'abcd',
         maxZoom: 19,
       }
@@ -1059,6 +1070,18 @@ export function MapView({
             <span>Albergue</span>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setHudOpen(false);
+            onOpenSources();
+          }}
+          className="mt-2.5 w-full min-h-[36px] px-2.5 py-1.5 rounded-lg bg-[#1f1f28] hover:bg-[#2a2a36] border border-[#2c2c3a] text-[11px] font-medium text-[#d6d3e3] hover:text-white inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+        >
+          <Info className="w-3.5 h-3.5 text-[#e05c7a]" aria-hidden="true" />
+          <span>Fuente de datos (INE)</span>
+        </button>
       </div>
 
       {/* Estado de carga o error de capas GeoJSON */}
@@ -1124,13 +1147,26 @@ export function MapView({
         </div>
       </div>
 
-      {/* Contador discreto abajo izquierda en desktop */}
+      {/* Contador discreto y acceso directo a Fuente de datos (sobre la atribución bottomleft) */}
       {!loadingGeo && (
-        <div className="hidden lg:flex items-center gap-2 absolute bottom-4 left-4 z-20 px-3 py-1.5 rounded-xl bg-[#14141b]/90 backdrop-blur-md border border-[#2c2c3a] text-xs text-[#b8b5c8]">
-          <span className="font-mono-num font-semibold text-white">
-            {counts.totalFiltered.toLocaleString('es-PY')}
+        <div className="flex items-center gap-2 absolute bottom-8 left-3 lg:bottom-9 lg:left-4 z-20 px-3 py-1.5 rounded-xl bg-[#14141b]/90 backdrop-blur-md border border-[#2c2c3a] text-xs text-[#b8b5c8]">
+          <span className="hidden sm:inline">
+            <span className="font-mono-num font-semibold text-white">
+              {counts.totalFiltered.toLocaleString('es-PY')}
+            </span>{' '}
+            puntos visibles
           </span>
-          <span>puntos visibles en mapa</span>
+          <span className="hidden sm:inline text-[#565368]" aria-hidden="true">
+            ·
+          </span>
+          <button
+            type="button"
+            onClick={onOpenSources}
+            className="inline-flex items-center gap-1.5 text-[#f0a0b0] hover:text-white font-medium whitespace-nowrap transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e05c7a] rounded"
+          >
+            <Info className="w-3.5 h-3.5 text-[#e05c7a] shrink-0" aria-hidden="true" />
+            <span>Fuente de datos</span>
+          </button>
         </div>
       )}
     </div>

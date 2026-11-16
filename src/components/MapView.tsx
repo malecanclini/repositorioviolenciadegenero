@@ -621,6 +621,11 @@ export function MapView({
       tileLayerRef.current = null;
     }
 
+    const tilePane = map.getPane('tilePane');
+    if (tilePane) {
+      tilePane.style.filter = '';
+    }
+
     const createOsmLayer = () =>
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors',
@@ -637,8 +642,23 @@ export function MapView({
 
     let cancelled = false;
     let darkErrorCount = 0;
-    let darkTileLoaded = false;
     let switchedToFallback = false;
+
+    const activateDarkOsmFallback = () => {
+      if (cancelled || switchedToFallback) return;
+      switchedToFallback = true;
+      if (!mapRef.current) return;
+      if (tileLayerRef.current) {
+        mapRef.current.removeLayer(tileLayerRef.current);
+      }
+      const fallbackTile = createOsmLayer().addTo(mapRef.current);
+      tileLayerRef.current = fallbackTile;
+      const pane = mapRef.current.getPane('tilePane');
+      if (pane) {
+        pane.style.filter =
+          'invert(100%) hue-rotate(180deg) brightness(92%) contrast(92%) saturate(85%)';
+      }
+    };
 
     const darkTile = L.tileLayer(
       'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
@@ -649,27 +669,47 @@ export function MapView({
       }
     );
 
-    darkTile.on('tileload', () => {
-      darkTileLoaded = true;
-    });
-
     darkTile.on('tileerror', () => {
-      if (cancelled || switchedToFallback || darkTileLoaded) return;
+      if (cancelled || switchedToFallback) return;
       darkErrorCount += 1;
       if (darkErrorCount >= 2) {
-        switchedToFallback = true;
-        if (mapRef.current && tileLayerRef.current === darkTile) {
-          mapRef.current.removeLayer(darkTile);
-          const fallbackTile = createOsmLayer().addTo(mapRef.current);
-          tileLayerRef.current = fallbackTile;
-          setMapTheme('light');
-        }
+        activateDarkOsmFallback();
       }
     });
 
     darkTile.addTo(map);
     tileLayerRef.current = darkTile;
     renderVisibleClusters();
+
+    // CARTO devuelve HTTP 200 con un PNG watermark "API KEY REQUIRED" (~2.5 KB) cuando bloquea el dominio;
+    // verificamos 2 tiles reales de Paraguay para detectar el watermark y activar fallback a OSM oscuro.
+    Promise.all([
+      fetch('https://a.basemaps.cartocdn.com/dark_all/6/21/36.png').then(async (r) => ({
+        ok: r.ok,
+        etag: r.headers.get('etag') || '',
+        size: (await r.blob()).size,
+      })),
+      fetch('https://b.basemaps.cartocdn.com/dark_all/12/1391/2339.png').then(async (r) => ({
+        ok: r.ok,
+        etag: r.headers.get('etag') || '',
+        size: (await r.blob()).size,
+      })),
+    ])
+      .then(([t1, t2]) => {
+        if (cancelled || switchedToFallback) return;
+        const isWatermark =
+          !t1.ok ||
+          !t2.ok ||
+          t1.etag.includes('wm-') ||
+          t2.etag.includes('wm-') ||
+          (t1.size > 0 && t1.size === t2.size && t1.size <= 3500);
+        if (isWatermark) {
+          activateDarkOsmFallback();
+        }
+      })
+      .catch(() => {
+        // Si fetch falla por red/CORS, tileerror manejará el fallback si corresponde
+      });
 
     return () => {
       cancelled = true;

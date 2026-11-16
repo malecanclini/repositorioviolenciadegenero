@@ -44,7 +44,7 @@ export default function App() {
     filteredPoints,
     filteredCurated,
     sortedListPoints,
-    superclusterIndex,
+    superclusterIndexes,
     counts,
   } = useParaguayData({
     categoryFilter,
@@ -157,7 +157,7 @@ export default function App() {
               <MapView
                 filteredCurated={filteredCurated}
                 filteredPoints={filteredPoints}
-                superclusterIndex={superclusterIndex}
+                superclusterIndexes={superclusterIndexes}
                 selectedPoint={selectedPoint}
                 onSelectPoint={(pt) => setSelectedPoint(pt)}
                 userLocation={userLocation}

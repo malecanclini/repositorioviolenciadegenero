@@ -285,21 +285,7 @@ export function useParaguayData(params: {
     [filteredPoints]
   );
 
-  const superclusterIndex = useMemo(() => {
-    const index = new Supercluster<PointFeatureProperties, { policialCount: number; saludCount: number }>({
-      radius: 54,
-      maxZoom: 15,
-      minPoints: 3,
-      map: (props) => ({
-        policialCount: props.point.source === 'policial' ? 1 : 0,
-        saludCount: props.point.source === 'salud' ? 1 : 0,
-      }),
-      reduce: (acc, props) => {
-        acc.policialCount += props.policialCount;
-        acc.saludCount += props.saludCount;
-      },
-    });
-
+  const superclusterIndexes = useMemo(() => {
     const geoFeatures: GeoJSON.Feature<GeoJSON.Point, PointFeatureProperties>[] =
       filteredGeoPoints.map((pt) => ({
         type: 'Feature',
@@ -313,8 +299,31 @@ export function useParaguayData(params: {
         },
       }));
 
-    index.load(geoFeatures);
-    return index;
+    const makeIndex = (radius: number, minPoints: number) => {
+      const idx = new Supercluster<
+        PointFeatureProperties,
+        { policialCount: number; saludCount: number }
+      >({
+        radius,
+        maxZoom: 15,
+        minPoints,
+        map: (props) => ({
+          policialCount: props.point.source === 'policial' ? 1 : 0,
+          saludCount: props.point.source === 'salud' ? 1 : 0,
+        }),
+        reduce: (acc, props) => {
+          acc.policialCount += props.policialCount;
+          acc.saludCount += props.saludCount;
+        },
+      });
+      idx.load(geoFeatures);
+      return idx;
+    };
+
+    return {
+      lowZoom: makeIndex(60, 3),
+      highZoom: makeIndex(40, 2),
+    };
   }, [filteredGeoPoints]);
 
   const counts = useMemo(
@@ -344,7 +353,7 @@ export function useParaguayData(params: {
     filteredCurated,
     filteredGeoPoints,
     sortedListPoints,
-    superclusterIndex,
+    superclusterIndexes,
     counts,
     allPoints,
   };

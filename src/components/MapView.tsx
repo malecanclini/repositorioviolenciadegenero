@@ -29,10 +29,16 @@ import {
 interface MapViewProps {
   filteredCurated: UnifiedPoint[];
   filteredPoints: UnifiedPoint[];
-  superclusterIndex: Supercluster<
-    PointFeatureProperties,
-    { policialCount: number; saludCount: number }
-  >;
+  superclusterIndexes: {
+    lowZoom: Supercluster<
+      PointFeatureProperties,
+      { policialCount: number; saludCount: number }
+    >;
+    highZoom: Supercluster<
+      PointFeatureProperties,
+      { policialCount: number; saludCount: number }
+    >;
+  };
   selectedPoint: UnifiedPoint | null;
   onSelectPoint: (point: UnifiedPoint) => void;
   userLocation: UserLocation | null;
@@ -62,6 +68,13 @@ interface MapViewProps {
 const PARAGUAY_CENTER: [number, number] = [-23.45, -58.0];
 const PARAGUAY_DEFAULT_ZOOM = 6;
 
+function getClusterBadgeSize(count: number): number {
+  if (count >= 500) return 50;
+  if (count >= 100) return 44;
+  if (count >= 25) return 40;
+  return 36;
+}
+
 function createClusterIcon(
   count: number,
   policialCount: number,
@@ -70,11 +83,7 @@ function createClusterIcon(
   const total = Math.max(1, policialCount + saludCount);
   const polRatio = policialCount / total;
 
-  let size = 36;
-  if (count >= 500) size = 50;
-  else if (count >= 100) size = 44;
-  else if (count >= 25) size = 40;
-
+  const size = getClusterBadgeSize(count);
   const hitSize = Math.max(44, size);
   const strokeWidth = 3.5;
   const r = size / 2 - strokeWidth;
@@ -101,6 +110,22 @@ function createClusterIcon(
     html: svg,
     iconSize: [hitSize, hitSize],
     iconAnchor: [hitSize / 2, hitSize / 2],
+  });
+}
+
+function createSpiderHubIcon(extraCount: number): L.DivIcon {
+  const label = extraCount > 0 ? `+${extraCount}` : '✕';
+  return L.divIcon({
+    className: '',
+    html: `
+      <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+        <div style="width:28px;height:28px;border-radius:9999px;background:#1f1f2b;border:2px solid #e05c7a;color:#f4f2fa;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,0.6);">
+          ${label}
+        </div>
+      </div>
+    `,
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
   });
 }
 
@@ -183,7 +208,7 @@ function createUserLocationIcon(): L.DivIcon {
 export function MapView({
   filteredCurated,
   filteredPoints,
-  superclusterIndex,
+  superclusterIndexes,
   selectedPoint,
   onSelectPoint,
   userLocation,
@@ -208,8 +233,15 @@ export function MapView({
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const geoLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  const spiderLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const curatedLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
+  const spiderfiedClusterRef = useRef<{
+    clusterId: number;
+    zoom: number;
+    center: [number, number];
+    totalCount: number;
+  } | null>(null);
 
   const [mapTheme, setMapTheme] = useState<MapTheme>('dark');
   const [hudOpen, setHudOpen] = useState(false);
@@ -217,14 +249,136 @@ export function MapView({
   const onSelectPointRef = useRef(onSelectPoint);
   onSelectPointRef.current = onSelectPoint;
 
-  const superclusterRef = useRef(superclusterIndex);
-  superclusterRef.current = superclusterIndex;
+  const superclusterIndexesRef = useRef(superclusterIndexes);
+  superclusterIndexesRef.current = superclusterIndexes;
 
   const selectedUidRef = useRef<string | null>(selectedPoint?.uid ?? null);
   selectedUidRef.current = selectedPoint?.uid ?? null;
 
   const mapThemeRef = useRef(mapTheme);
   mapThemeRef.current = mapTheme;
+
+  const clearSpiderfy = useCallback(() => {
+    spiderfiedClusterRef.current = null;
+    spiderLayerGroupRef.current?.clearLayers();
+  }, []);
+
+  const renderSpiderfy = useCallback(
+    (
+      clusterId: number,
+      centerLat: number,
+      centerLng: number,
+      index: Supercluster<
+        PointFeatureProperties,
+        { policialCount: number; saludCount: number }
+      >,
+      totalCount: number
+    ) => {
+      const map = mapRef.current;
+      const spiderGroup = spiderLayerGroupRef.current;
+      if (!map || !spiderGroup) return;
+
+      spiderGroup.clearLayers();
+
+      const maxLeaves = 36;
+      const leaves = index.getLeaves(clusterId, maxLeaves, 0);
+      const centerPt = map.latLngToLayerPoint([centerLat, centerLng]);
+      const n = leaves.length;
+      const legColor =
+        mapThemeRef.current === 'dark'
+          ? 'rgba(240, 238, 245, 0.35)'
+          : 'rgba(15, 15, 19, 0.35)';
+
+      leaves.forEach((leaf, i) => {
+        const pt = leaf.properties.point;
+        let radiusPx: number;
+        let angle: number;
+
+        if (n <= 10) {
+          radiusPx = 46 + n * 3.5;
+          angle = (2 * Math.PI * i) / n - Math.PI / 2;
+        } else {
+          // Espiral de abanico equilibrada para tocar puntos cómodamente en móvil
+          angle = i * 0.68 - Math.PI / 2;
+          radiusPx = 42 + 14 * Math.sqrt(i);
+        }
+
+        const targetPixel = L.point(
+          centerPt.x + radiusPx * Math.cos(angle),
+          centerPt.y + radiusPx * Math.sin(angle)
+        );
+        const targetLatLng = map.layerPointToLatLng(targetPixel);
+
+        const leg = L.polyline(
+          [
+            [centerLat, centerLng],
+            [targetLatLng.lat, targetLatLng.lng],
+          ],
+          {
+            color: legColor,
+            weight: 1.5,
+            dashArray: '3 4',
+            interactive: false,
+          }
+        );
+        spiderGroup.addLayer(leg);
+
+        const isSelected = selectedUidRef.current === pt.uid;
+        const leafMarker = L.marker([targetLatLng.lat, targetLatLng.lng], {
+          icon: createGeoPointIcon(pt.category, isSelected, mapThemeRef.current),
+          zIndexOffset: isSelected ? 950 : 750,
+        });
+
+        leafMarker.on('click', (ev) => {
+          L.DomEvent.stopPropagation(ev);
+          onSelectPointRef.current(pt);
+        });
+
+        leafMarker.bindTooltip(
+          `<div style="font-weight:600">${pt.name}</div>
+           <div style="color:#9895a8;font-size:11px">${pt.subCategory} · ${formatDepartmentName(pt.departamento)}</div>`,
+          { direction: 'top', offset: [0, -10], className: 'custom-map-tooltip' }
+        );
+
+        spiderGroup.addLayer(leafMarker);
+      });
+
+      const remaining = Math.max(0, totalCount - n);
+      const hubMarker = L.marker([centerLat, centerLng], {
+        icon: createSpiderHubIcon(remaining),
+        zIndexOffset: 760,
+      });
+
+      hubMarker.on('click', (ev) => {
+        L.DomEvent.stopPropagation(ev);
+        if (remaining > 0) {
+          const nextZoom = Math.min(
+            index.getClusterExpansionZoom(clusterId),
+            17
+          );
+          clearSpiderfy();
+          map.flyTo([centerLat, centerLng], Math.max(nextZoom, map.getZoom() + 1), {
+            duration: 0.45,
+          });
+        } else {
+          clearSpiderfy();
+          renderVisibleClustersRef.current();
+        }
+      });
+
+      hubMarker.bindTooltip(
+        remaining > 0
+          ? `<div style="font-weight:600">Mostrando ${n} de ${totalCount} puntos</div><div style="color:#9895a8;font-size:11px">Tocá para acercar más</div>`
+          : `<div style="font-weight:600">Cerrar abanico (${n} puntos)</div>`,
+        { direction: 'top', offset: [0, -12], className: 'custom-map-tooltip' }
+      );
+
+      spiderGroup.addLayer(hubMarker);
+    },
+    [clearSpiderfy]
+  );
+
+  const renderVisibleClustersRef = useRef<() => void>(() => {});
 
   const renderVisibleClusters = useCallback(() => {
     const map = mapRef.current;
@@ -235,6 +389,12 @@ export function MapView({
     const bounds = map.getBounds();
     const zoom = Math.round(map.getZoom());
 
+    // Radio 60 en zoom bajo (< 12) y radio 40 en zoom alto (>= 12)
+    const activeIndex =
+      zoom < 12
+        ? superclusterIndexesRef.current.lowZoom
+        : superclusterIndexesRef.current.highZoom;
+
     const bbox: [number, number, number, number] = [
       bounds.getWest(),
       bounds.getSouth(),
@@ -242,62 +402,161 @@ export function MapView({
       bounds.getNorth(),
     ];
 
-    const clusters = superclusterRef.current.getClusters(bbox, zoom);
+    const rawFeatures = activeIndex.getClusters(bbox, zoom);
 
-    clusters.forEach((feature) => {
-      const [lng, lat] = feature.geometry.coordinates;
+    type ClusterNode = {
+      feature: (typeof rawFeatures)[number];
+      cProps: ClusterFeatureProperties;
+      px: number;
+      py: number;
+      radius: number;
+    };
+
+    const clusterNodes: ClusterNode[] = [];
+    const pointFeatures: (typeof rawFeatures)[number][] = [];
+
+    rawFeatures.forEach((feature) => {
       const props = feature.properties;
-
       if ('cluster' in props && props.cluster) {
         const cProps = props as ClusterFeatureProperties;
-        const marker = L.marker([lat, lng], {
-          icon: createClusterIcon(
-            cProps.point_count,
-            cProps.policialCount || 0,
-            cProps.saludCount || 0
-          ),
-          zIndexOffset: 100,
+        const [lng, lat] = feature.geometry.coordinates;
+        const pixel = map.latLngToLayerPoint([lat, lng]);
+        clusterNodes.push({
+          feature,
+          cProps,
+          px: pixel.x,
+          py: pixel.y,
+          radius: getClusterBadgeSize(cProps.point_count) / 2,
         });
-
-        marker.on('click', () => {
-          const expansionZoom = Math.min(
-            superclusterRef.current.getClusterExpansionZoom(cProps.cluster_id),
-            17
-          );
-          map.flyTo([lat, lng], expansionZoom, { duration: 0.45 });
-        });
-
-        marker.bindTooltip(
-          `<div style="font-weight:600">${cProps.point_count} puntos en esta zona</div>
-           <div style="color:#9895a8;font-size:11px;margin-top:2px">Tocá para acercar · ${cProps.policialCount} policial · ${cProps.saludCount} salud</div>`,
-          { direction: 'top', offset: [0, -14], className: 'custom-map-tooltip' }
-        );
-
-        group.addLayer(marker);
       } else {
-        const pProps = props as PointFeatureProperties;
-        const pt = pProps.point;
-        const isSelected = selectedUidRef.current === pt.uid;
-
-        const marker = L.marker([lat, lng], {
-          icon: createGeoPointIcon(pt.category, isSelected, mapThemeRef.current),
-          zIndexOffset: isSelected ? 800 : 200,
-        });
-
-        marker.on('click', () => {
-          onSelectPointRef.current(pt);
-        });
-
-        marker.bindTooltip(
-          `<div style="font-weight:600">${pt.name}</div>
-           <div style="color:#9895a8;font-size:11px">${pt.subCategory} · ${formatDepartmentName(pt.departamento)}</div>`,
-          { direction: 'top', offset: [0, -10], className: 'custom-map-tooltip' }
-        );
-
-        group.addLayer(marker);
+        pointFeatures.push(feature);
       }
     });
-  }, []);
+
+    // Pequeño desplazamiento en pantalla para evitar que clusters cercanos se superpongan
+    const paddingPx = 10;
+    for (let pass = 0; pass < 4; pass++) {
+      for (let i = 0; i < clusterNodes.length; i++) {
+        for (let j = i + 1; j < clusterNodes.length; j++) {
+          const a = clusterNodes[i];
+          const b = clusterNodes[j];
+          const dx = b.px - a.px;
+          const dy = b.py - a.py;
+          const dist = Math.hypot(dx, dy);
+          const minDist = a.radius + b.radius + paddingPx;
+
+          if (dist < minDist) {
+            const overlap = (minDist - dist) * 0.55;
+            let ux: number;
+            let uy: number;
+            if (dist > 0.01) {
+              ux = dx / dist;
+              uy = dy / dist;
+            } else {
+              const fallbackAngle = ((i + j) * 2.39996) % (Math.PI * 2);
+              ux = Math.cos(fallbackAngle);
+              uy = Math.sin(fallbackAngle);
+            }
+            a.px -= ux * overlap;
+            a.py -= uy * overlap;
+            b.px += ux * overlap;
+            b.py += uy * overlap;
+          }
+        }
+      }
+    }
+
+    clusterNodes.forEach((node) => {
+      const { cProps } = node;
+      const activeSpider = spiderfiedClusterRef.current;
+      if (
+        activeSpider &&
+        activeSpider.clusterId === cProps.cluster_id &&
+        activeSpider.zoom === zoom
+      ) {
+        return;
+      }
+
+      const adjLatLng = map.layerPointToLatLng(L.point(node.px, node.py));
+      const marker = L.marker([adjLatLng.lat, adjLatLng.lng], {
+        icon: createClusterIcon(
+          cProps.point_count,
+          cProps.policialCount || 0,
+          cProps.saludCount || 0
+        ),
+        zIndexOffset: 100,
+      });
+
+      marker.on('click', (ev) => {
+        L.DomEvent.stopPropagation(ev);
+        const expansionZoom = Math.min(
+          activeIndex.getClusterExpansionZoom(cProps.cluster_id),
+          17
+        );
+
+        // En clusters densos o zoom alto/cercano expandimos en abanico (spiderfy);
+        // si es un macro-cluster muy grande en zoom lejano, primero acercamos y luego spiderfy
+        const shouldSpiderfy =
+          cProps.point_count <= 36 || zoom >= 13 || expansionZoom <= zoom;
+
+        if (shouldSpiderfy) {
+          spiderfiedClusterRef.current = {
+            clusterId: cProps.cluster_id,
+            zoom,
+            center: [adjLatLng.lat, adjLatLng.lng],
+            totalCount: cProps.point_count,
+          };
+          renderVisibleClustersRef.current();
+          renderSpiderfy(
+            cProps.cluster_id,
+            adjLatLng.lat,
+            adjLatLng.lng,
+            activeIndex,
+            cProps.point_count
+          );
+        } else {
+          clearSpiderfy();
+          map.flyTo([adjLatLng.lat, adjLatLng.lng], Math.min(expansionZoom, 14), {
+            duration: 0.45,
+          });
+        }
+      });
+
+      marker.bindTooltip(
+        `<div style="font-weight:600">${cProps.point_count} puntos en esta zona</div>
+         <div style="color:#9895a8;font-size:11px;margin-top:2px">Tocá para expandir · ${cProps.policialCount} policial · ${cProps.saludCount} salud</div>`,
+        { direction: 'top', offset: [0, -14], className: 'custom-map-tooltip' }
+      );
+
+      group.addLayer(marker);
+    });
+
+    pointFeatures.forEach((feature) => {
+      const [lng, lat] = feature.geometry.coordinates;
+      const pProps = feature.properties as PointFeatureProperties;
+      const pt = pProps.point;
+      const isSelected = selectedUidRef.current === pt.uid;
+
+      const marker = L.marker([lat, lng], {
+        icon: createGeoPointIcon(pt.category, isSelected, mapThemeRef.current),
+        zIndexOffset: isSelected ? 800 : 200,
+      });
+
+      marker.on('click', () => {
+        onSelectPointRef.current(pt);
+      });
+
+      marker.bindTooltip(
+        `<div style="font-weight:600">${pt.name}</div>
+         <div style="color:#9895a8;font-size:11px">${pt.subCategory} · ${formatDepartmentName(pt.departamento)}</div>`,
+        { direction: 'top', offset: [0, -10], className: 'custom-map-tooltip' }
+      );
+
+      group.addLayer(marker);
+    });
+  }, [clearSpiderfy, renderSpiderfy]);
+
+  renderVisibleClustersRef.current = renderVisibleClusters;
 
   // Inicializar Leaflet una sola vez
   useEffect(() => {
@@ -311,22 +570,25 @@ export function MapView({
       maxZoom: 18,
     });
 
-    const tile = L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      {
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
-        subdomains: 'abcd',
-        maxZoom: 19,
-      }
-    ).addTo(map);
-
     const geoGroup = L.layerGroup().addTo(map);
+    const spiderGroup = L.layerGroup().addTo(map);
     const curatedGroup = L.layerGroup().addTo(map);
 
     mapRef.current = map;
-    tileLayerRef.current = tile;
     geoLayerGroupRef.current = geoGroup;
+    spiderLayerGroupRef.current = spiderGroup;
     curatedLayerGroupRef.current = curatedGroup;
+
+    map.on('zoomstart', () => {
+      clearSpiderfy();
+    });
+
+    map.on('click', () => {
+      if (spiderfiedClusterRef.current) {
+        clearSpiderfy();
+        renderVisibleClustersRef.current();
+      }
+    });
 
     map.on('moveend zoomend', () => {
       renderVisibleClusters();
@@ -344,38 +606,106 @@ export function MapView({
       mapRef.current = null;
       tileLayerRef.current = null;
       geoLayerGroupRef.current = null;
+      spiderLayerGroupRef.current = null;
       curatedLayerGroupRef.current = null;
     };
-  }, [renderVisibleClusters]);
+  }, [clearSpiderfy, renderVisibleClusters]);
 
-  // Cambiar estilo de tiles Oscuro / Claro
+  // Cambiar estilo de tiles Oscuro / Claro con fallback automático a OSM
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     if (tileLayerRef.current) {
       map.removeLayer(tileLayerRef.current);
+      tileLayerRef.current = null;
     }
 
-    const url =
-      mapTheme === 'dark'
-        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-        : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+    const createOsmLayer = () =>
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        subdomains: 'abc',
+        maxZoom: 19,
+      });
 
-    const tile = L.tileLayer(url, {
-      attribution: '&copy; OpenStreetMap &copy; CARTO',
-      subdomains: 'abcd',
-      maxZoom: 19,
-    }).addTo(map);
+    if (mapTheme === 'light') {
+      const osmTile = createOsmLayer().addTo(map);
+      tileLayerRef.current = osmTile;
+      renderVisibleClusters();
+      return;
+    }
 
-    tileLayerRef.current = tile;
+    let cancelled = false;
+    let darkErrorCount = 0;
+    let darkTileLoaded = false;
+    let switchedToFallback = false;
+
+    const darkTile = L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      {
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        subdomains: 'abcd',
+        maxZoom: 19,
+      }
+    );
+
+    darkTile.on('tileload', () => {
+      darkTileLoaded = true;
+    });
+
+    darkTile.on('tileerror', () => {
+      if (cancelled || switchedToFallback || darkTileLoaded) return;
+      darkErrorCount += 1;
+      if (darkErrorCount >= 2) {
+        switchedToFallback = true;
+        if (mapRef.current && tileLayerRef.current === darkTile) {
+          mapRef.current.removeLayer(darkTile);
+          const fallbackTile = createOsmLayer().addTo(mapRef.current);
+          tileLayerRef.current = fallbackTile;
+          setMapTheme('light');
+        }
+      }
+    });
+
+    darkTile.addTo(map);
+    tileLayerRef.current = darkTile;
     renderVisibleClusters();
+
+    return () => {
+      cancelled = true;
+    };
   }, [mapTheme, renderVisibleClusters]);
 
-  // Re-renderizar clusters cuando cambia el índice o el punto seleccionado
+  // Re-renderizar clusters cuando cambian los índices o el punto seleccionado
+  useEffect(() => {
+    clearSpiderfy();
+    renderVisibleClusters();
+  }, [superclusterIndexes, clearSpiderfy, renderVisibleClusters]);
+
   useEffect(() => {
     renderVisibleClusters();
-  }, [superclusterIndex, selectedPoint, renderVisibleClusters]);
+    const activeSpider = spiderfiedClusterRef.current;
+    if (activeSpider && mapRef.current) {
+      const idx =
+        activeSpider.zoom < 12
+          ? superclusterIndexesRef.current.lowZoom
+          : superclusterIndexesRef.current.highZoom;
+      try {
+        const leaves = idx.getLeaves(activeSpider.clusterId, 1, 0);
+        if (leaves.length > 0) {
+          renderSpiderfy(
+            activeSpider.clusterId,
+            activeSpider.center[0],
+            activeSpider.center[1],
+            idx,
+            activeSpider.totalCount
+          );
+        }
+      } catch {
+        clearSpiderfy();
+      }
+    }
+  }, [selectedPoint, renderVisibleClusters, renderSpiderfy, clearSpiderfy]);
 
   // Renderizar marcadores prioritarios (centros especializados)
   useEffect(() => {
